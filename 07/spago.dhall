@@ -19,6 +19,7 @@ to generate this file without the comments in this block.
   , "effect"
   , "either"
   , "foldable-traversable"
+  , "maybe"
   , "node-buffer"
   , "node-fs-aff"
   , "parsing"

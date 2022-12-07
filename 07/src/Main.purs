@@ -12,8 +12,9 @@ import Control.Alt ((<|>))
 import Control.Lazy (defer)
 import Data.Array (concatMap, filter, many, (:))
 import Data.Either (Either(..))
-import Data.Foldable (sum)
+import Data.Foldable (maximum, minimum, sum)
 import Data.Generic.Rep (class Generic)
+import Data.Maybe (fromMaybe)
 import Data.Show.Generic (genericShow)
 import Effect (Effect)
 import Effect.Aff (launchAff_)
@@ -77,4 +78,11 @@ main = launchAff_ do
       let smallEnough x = x <= 100000
       let smallDirs = filter smallEnough $ dirSizes fileObj
       log $ "Sum of small enough dir sizes: " <> (show $ sum smallDirs)
+
+      log "Part 2"
+      let rootDir = fromMaybe 0 (maximum $ dirSizes fileObj)
+      let spaceNeeded = 30000000 - (70000000 - rootDir)
+      let bigEnough x = x >= spaceNeeded
+      let dirToDelete = fromMaybe 0 $ minimum $ filter bigEnough $ dirSizes fileObj
+      log $ "Smallest sufficiently large dir: " <> show dirToDelete
     Left msg -> logShow msg
