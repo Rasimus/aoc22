@@ -14,11 +14,15 @@ to generate this file without the comments in this block.
 , dependencies =
   [ "arrays"
   , "console"
+  , "control"
   , "effect"
   , "either"
   , "foldable-traversable"
+  , "integers"
+  , "maybe"
   , "node-buffer"
   , "node-fs"
+  , "numbers"
   , "parsing"
   , "prelude"
   ]

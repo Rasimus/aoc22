@@ -1,23 +1,17 @@
 module Main
-  ( Direction(..)
-  , GridLocation
-  , HeadLocation
-  , State
-  , TailPosition(..)
-  , main
-  , move
-  , moveTail
-  , rotate
-  , toCoords
+  ( main
   )
   where
 
 import Prelude
 
-import Data.Array (concatMap, foldl, length, many, nub, replicate, (:))
+import Data.Array (concatMap, foldl, length, many, nub, replicate, scanl, takeEnd)
 import Data.Either (Either(..))
 import Data.Foldable (oneOf)
 import Data.Generic.Rep (class Generic)
+import Data.Int (toNumber)
+import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Number (abs)
 import Data.Show.Generic (genericShow)
 import Effect (Effect)
 import Effect.Class.Console (log, logShow)
@@ -30,110 +24,108 @@ import Parsing.String.Basic (intDecimal, skipSpaces)
 
 
 
-data TailPosition = C | N | NE | E | SE | S | SW | W | NW
-data Direction = UP | RIGHT | DOWN | LEFT
-
+data Direction = N | NE | E | SE | S | SW | W | NW
 derive instance genericDirection :: Generic Direction _
 instance showDirection :: Show Direction where
   show = genericShow
 
-type GridLocation = {x :: Int, y :: Int}
-type HeadLocation = GridLocation
+type Coords = {x :: Int, y :: Int}
 
-type State = {headLoc :: HeadLocation, tailPos :: TailPosition, tailHistory :: Array GridLocation }
+type State = {headCoords :: Coords,
+              tailCoords :: Array Coords,
+              tailVisited :: Array Coords}
 
--- ISOMORPHISMS, IS THERE A TYPECLASS TO USE?
+toCoords :: Direction -> Coords
+toCoords N = {x: 0, y: 1}
+toCoords NE = {x: 1, y: 1}
+toCoords E = {x: 1, y: 0}
+toCoords SE = {x: 1, y: -1}
+toCoords S = {x: 0, y: -1}
+toCoords SW = {x: -1, y: -1}
+toCoords W = {x: -1, y: 0}
+toCoords NW = {x: -1, y: 1}
 
--- input:   TailPosition
--- output:  TailPosition after rotating the grid 90 degrees
-rotate :: TailPosition -> TailPosition
-rotate C  = C
-rotate N  = E
-rotate NE = SE
-rotate E  = S
-rotate SE = SW
-rotate S  = W
-rotate SW = NW
-rotate W  = N
-rotate NW = NE
-rotate2 :: TailPosition -> TailPosition
-rotate2 = rotate <<< rotate
-rotate3 :: TailPosition -> TailPosition
-rotate3 = rotate <<< rotate <<< rotate
+fromCoords :: Coords -> Maybe Direction
+fromCoords {x, y} | x > 0 &&
+                    y < 0  = Just SE
+fromCoords {x, y} | x < 0 &&
+                    y < 0 = Just SW
+fromCoords {x, y} | x < 0 &&
+                    y > 0 = Just NW
+fromCoords {x, y} | x > 0 &&
+                    y > 0 = Just NE
+fromCoords {x: 0, y} | y > 0 = Just N
+fromCoords {x: 0, y} | y < 0 = Just S
+fromCoords {x, y: 0} | x > 0 = Just E
+fromCoords {x, y: 0} | x < 0 = Just W
+fromCoords {x: _, y: _} = Nothing
 
--- input:   TailPosition
--- output:  TailPosition as coords relative to head (0, 0)
-toCoords :: TailPosition -> GridLocation
-toCoords C  = {x:   0,  y:    0}
-toCoords N  = {x:   0,  y:    1}
-toCoords NE = {x:   1,  y:    1}
-toCoords E  = {x:   1,  y:    0}
-toCoords SE = {x:   1,  y:  - 1}
-toCoords S  = {x:   0,  y:  - 1}
-toCoords SW = {x: - 1,  y:  - 1}
-toCoords W  = {x: - 1,  y:    0}
-toCoords NW = {x: - 1,  y:    1}
+zipCoords :: (Int -> Int -> Int) -> Coords -> Coords -> Coords
+zipCoords f a b = {x: f a.x b.x, y: f a.y b.y}
 
-moveCoords :: Direction -> GridLocation -> GridLocation
-moveCoords UP     coords  = addGL coords $ toCoords N
-moveCoords RIGHT  coords  = addGL coords $ toCoords E
-moveCoords DOWN   coords  = addGL coords $ toCoords S
-moveCoords LEFT   coords  = addGL coords $ toCoords W
+addCoords :: Coords -> Coords -> Coords
+addCoords = zipCoords (+)
 
-addGL :: GridLocation -> GridLocation -> GridLocation
-addGL {x: a, y: b} {x: c, y: d} = {x: a+c, y: b+d}
+subCoords :: Coords -> Coords -> Coords
+subCoords = zipCoords (-)
 
--- input: direction that head moved
---        current tail position relative to head
--- output:  new TailPosition after moving head 1 step northward
-moveTail :: Direction -> TailPosition -> TailPosition
-moveTail UP W   = SW
-moveTail UP E   = SE
-moveTail UP NE  = E
-moveTail UP NW  = W
-moveTail UP N   = C
-moveTail UP SW  = S
-moveTail UP S   = S
-moveTail UP SE  = S
-moveTail UP C   = S
-moveTail RIGHT  pos = rotate  $ moveTail UP $ rotate3 pos
-moveTail DOWN   pos = rotate2 $ moveTail UP $ rotate2 pos
-moveTail LEFT   pos = rotate3 $ moveTail UP $ rotate pos
+isFarAway :: Coords -> Coords -> Boolean
+isFarAway a b | (abs $ toNumber (b.x - a.x)) > 1.0 ||
+                (abs $ toNumber (b.y - a.y)) > 1.0 = true
+              | otherwise = false
 
--- input:   state, direction
--- output:  state after moving head 1 step in direction
+getMoveDirection :: Coords -> Coords -> Maybe Direction
+getMoveDirection from to | isFarAway from to = fromCoords $ subCoords to from
+getMoveDirection _ _ = Nothing
+
+moveHead :: Coords -> Direction -> Coords
+moveHead headCoords dir = addCoords headCoords $ toCoords dir
+
+moveTail :: Coords -> Coords -> Coords
+moveTail towards from =  addCoords from $ fromMaybe noStep step
+  where
+    step :: Maybe Coords
+    step = toCoords <$> getMoveDirection from towards
+    noStep :: Coords
+    noStep = {x: 0, y: 0}
+
 move :: State -> Direction -> State
-move {headLoc: {x, y}, tailPos, tailHistory} dir =
-  {headLoc:     newHeadPos,
-   tailPos:     newTailPos,
-   tailHistory: (newTailCoords:tailHistory)}
-  where newHeadPos = moveCoords dir {x, y}
-        newTailPos = moveTail dir tailPos
-        newTailCoords = addGL newHeadPos (toCoords $ newTailPos)
-
+move state dir = {headCoords: newHead, tailCoords: newTail, tailVisited: state.tailVisited <> takeEnd 1 newTail}
+  where
+    newHead :: Coords
+    newHead = moveHead state.headCoords dir
+    newTail :: Array Coords
+    newTail = scanl moveTail newHead state.tailCoords-- state.tailCoords
 
 inputParser :: Parser String (Array Direction)
 inputParser = do
   moves <- many do
-    d <- oneOf $ [char 'U' $> UP,
-                  char 'R' $> RIGHT,
-                  char 'D' $> DOWN,
-                  char 'L' $> LEFT]
+    d <- oneOf $ [char 'U' $> N,
+                  char 'R' $> E,
+                  char 'D' $> S,
+                  char 'L' $> W]
     _ <- skipSpaces
     n <- intDecimal
     _ <- optional $ char '\n'
     pure (replicate n d)
   pure (concatMap identity moves)
 
+createStartState :: Int -> State
+createStartState tailLength = {
+  headCoords: {x: 0, y: 0},
+  tailCoords: (replicate tailLength {x: 0, y: 0}),
+  tailVisited: [] :: Array Coords
+  }
+
 main :: Effect Unit
 main = do
   input <- readTextFile UTF8 "input.txt"
   case runParser input inputParser of
     Right moves -> do
-      let startState = {headLoc: {x: 0, y: 0},
-                        tailPos: C,
-                        tailHistory: []}
-          endState = foldl move startState moves
+      let part1 = length $ nub $ _.tailVisited $ foldl move (createStartState 1) moves
       log "Part 1"
-      log $ "Number of positions visited by tail: " <> (show $ length $ nub $ endState.tailHistory)
+      log $ "Number of positions visited by tail: " <> show part1
+      log "Part 2"
+      let part2 = length $ nub $ _.tailVisited $ foldl move (createStartState 9) moves
+      log $ "Number of positions visited by tail: " <> show part2
     Left msg -> logShow msg
