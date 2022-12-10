@@ -2,12 +2,12 @@ module Main where
 
 import Prelude
 
-import Data.Array (concatMap, drop, foldl, groupBy, head, index, many, scanl, tail, take, (:))
+import Data.Array (head, index, many, tail, (:))
 import Data.Either (Either(..))
 import Data.Foldable (oneOf, sum)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Effect (Effect)
-import Effect.Console (log, logShow)
+import Effect.Console (logShow)
 import Node.Encoding (Encoding(..))
 import Node.FS.Sync (readTextFile)
 import Parsing (Parser, runParser)
@@ -30,14 +30,16 @@ inputParser = do
 signalStrength :: Array Int -> Int -> Int
 signalStrength xs i = (i+1) * (fromMaybe 0 $ index xs i)
 
-shiftNonZero :: Array Int -> Array Int
-shiftNonZero xs = case take 2 xs of
-  [a, 0] -> [0, a] <> (shiftNonZero $ drop 2 xs)
-  [0, _] -> 0:(shiftNonZero $ drop 1 xs)
-  -- [x] -> [x, 0]
-  _ -> []
-
-
+elvenCpu :: Int -> Int -> Int -> Array Int -> Array Int
+elvenCpu 0 op value ops =
+  case head ops of
+    Nothing   -> newValue : []
+    Just 0    -> newValue : (elvenCpu 0 0 newValue tail')
+    Just x    -> newValue : (elvenCpu 1 x newValue tail')
+  where
+    newValue = value + op
+    tail' = fromMaybe [] $ tail ops
+elvenCpu cyclesLeft op value ops  = value : (elvenCpu (cyclesLeft-1) op value ops)
 
 main :: Effect Unit
 main = do
@@ -46,11 +48,9 @@ main = do
     Right ops -> do
       let
         -- Add a zero before every non-zero value to represent the first cycle of the operation
-        cycleOps = shiftNonZero $ concatMap (\x -> if x /= 0 then [0, x] else [x]) (ops <> [0])
-        cycleValues = scanl (+) 1 cycleOps
+        cycleValues = elvenCpu 0 0 1 ops
         cyclesOfInterest = map (add (-1)) [20, 60, 100, 140, 180, 220]
         cycleStrengths = map (signalStrength cycleValues) cyclesOfInterest
         sumOfStrengths = sum $ cycleStrengths
-      log "Part 1"
-      log $ "Sum of signal strengths at interesting cycles: " <> show sumOfStrengths
+      logShow sumOfStrengths
     Left msg -> logShow msg
