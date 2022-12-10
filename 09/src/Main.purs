@@ -43,6 +43,7 @@ type HeadLocation = GridLocation
 type State = {headLoc :: HeadLocation, tailPos :: TailPosition, tailHistory :: Array GridLocation }
 
 -- ISOMORPHISMS, IS THERE A TYPECLASS TO USE?
+
 -- input:   TailPosition
 -- output:  TailPosition after rotating the grid 90 degrees
 rotate :: TailPosition -> TailPosition
@@ -59,6 +60,7 @@ rotate2 :: TailPosition -> TailPosition
 rotate2 = rotate <<< rotate
 rotate3 :: TailPosition -> TailPosition
 rotate3 = rotate <<< rotate <<< rotate
+
 -- input:   TailPosition
 -- output:  TailPosition as coords relative to head (0, 0)
 toCoords :: TailPosition -> GridLocation
@@ -72,40 +74,43 @@ toCoords SW = {x: - 1,  y:  - 1}
 toCoords W  = {x: - 1,  y:    0}
 toCoords NW = {x: - 1,  y:    1}
 
+moveCoords :: Direction -> GridLocation -> GridLocation
+moveCoords UP     coords  = addGL coords $ toCoords N
+moveCoords RIGHT  coords  = addGL coords $ toCoords E
+moveCoords DOWN   coords  = addGL coords $ toCoords S
+moveCoords LEFT   coords  = addGL coords $ toCoords W
+
 addGL :: GridLocation -> GridLocation -> GridLocation
 addGL {x: a, y: b} {x: c, y: d} = {x: a+c, y: b+d}
 
--- input:   TailPosition
+-- input: direction that head moved
+--        current tail position relative to head
 -- output:  new TailPosition after moving head 1 step northward
-moveTail :: TailPosition -> TailPosition
-moveTail SW = S
-moveTail S  = S
-moveTail SE = S
-moveTail C  = S
-moveTail W  = SW
-moveTail E  = SE
-moveTail NE = E
-moveTail NW = W
-moveTail N  = C
+moveTail :: Direction -> TailPosition -> TailPosition
+moveTail UP W   = SW
+moveTail UP E   = SE
+moveTail UP NE  = E
+moveTail UP NW  = W
+moveTail UP N   = C
+moveTail UP SW  = S
+moveTail UP S   = S
+moveTail UP SE  = S
+moveTail UP C   = S
+moveTail RIGHT  pos = rotate  $ moveTail UP $ rotate3 pos
+moveTail DOWN   pos = rotate2 $ moveTail UP $ rotate2 pos
+moveTail LEFT   pos = rotate3 $ moveTail UP $ rotate pos
 
--- input:
--- output: TailPosition
+-- input:   state, direction
+-- output:  state after moving head 1 step in direction
 move :: State -> Direction -> State
 move {headLoc: {x, y}, tailPos, tailHistory} dir =
-  {headLoc:     newHeadPos dir,
-   tailPos:     newTailPos dir,
+  {headLoc:     newHeadPos,
+   tailPos:     newTailPos,
    tailHistory: (newTailCoords:tailHistory)}
-  where newHeadPos UP     = {x: x,    y: y+1}
-        newHeadPos RIGHT  = {x: x+1,  y: y}
-        newHeadPos DOWN   = {x: x,    y: y-1}
-        newHeadPos LEFT   = {x: x-1,  y: y}
+  where newHeadPos = moveCoords dir {x, y}
+        newTailPos = moveTail dir tailPos
+        newTailCoords = addGL newHeadPos (toCoords $ newTailPos)
 
-        newTailPos UP     = moveTail tailPos
-        newTailPos RIGHT  = rotate $ moveTail $ rotate3 tailPos
-        newTailPos DOWN   = rotate2 $ moveTail $ rotate2 tailPos
-        newTailPos LEFT   = rotate3 $ moveTail $ rotate tailPos
-
-        newTailCoords = addGL (newHeadPos dir) (toCoords $ newTailPos dir)
 
 inputParser :: Parser String (Array Direction)
 inputParser = do
