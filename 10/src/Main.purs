@@ -2,10 +2,11 @@ module Main where
 
 import Prelude
 
-import Data.Array (head, index, many, tail, (:))
+import Data.Array (drop, head, index, many, mapWithIndex, tail, take, (:))
 import Data.Either (Either(..))
-import Data.Foldable (oneOf, sum)
+import Data.Foldable (oneOf, sum, traverse_)
 import Data.Maybe (Maybe(..), fromMaybe)
+import Data.String.CodeUnits (fromCharArray)
 import Effect (Effect)
 import Effect.Console (logShow)
 import Node.Encoding (Encoding(..))
@@ -41,6 +42,15 @@ elvenCpu 0 op value ops =
     tail' = fromMaybe [] $ tail ops
 elvenCpu cyclesLeft op value ops  = value : (elvenCpu (cyclesLeft-1) op value ops)
 
+draw :: Int -> Int -> Char
+draw index value | (index - value)  <= 1  &&
+                   (index - value) >= -1 = '#'
+                 | otherwise = '.'
+
+chunks :: forall a. Int -> Array a -> Array (Array a)
+chunks _ [] = []
+chunks n xs = (take n xs):(chunks n $ drop n xs)
+
 main :: Effect Unit
 main = do
   input <- readTextFile UTF8 "input.txt"
@@ -53,4 +63,7 @@ main = do
         cycleStrengths = map (signalStrength cycleValues) cyclesOfInterest
         sumOfStrengths = sum $ cycleStrengths
       logShow sumOfStrengths
+      let
+        crt = map (mapWithIndex draw) $ chunks 40 cycleValues
+      traverse_ logShow $ map fromCharArray crt
     Left msg -> logShow msg
