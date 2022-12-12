@@ -1,17 +1,39 @@
-module Main where
+module Main
+  ( Item
+  , Monkey
+  , MonkeyId
+  , Op(..)
+  , Term(..)
+  , _inspected
+  , _items
+  , addItem
+  , applyAll
+  , eval
+  , inputParser
+  , items
+  , itemsToThrow
+  , main
+  , monkey
+  , monkeyRound
+  , operation
+  , runRound
+  , testOperation
+  )
+  where
 
 import Prelude
 
 import Control.Alt ((<|>))
 import Data.Array (foldl, head, index, length, many, replicate, reverse, snoc, sort, tail, take, zip, (..))
+import Data.BigInt (BigInt, fromInt)
 import Data.Either (Either(..))
 import Data.Foldable (product)
 import Data.Lens (Lens', over, set)
 import Data.Lens.Index (ix)
 import Data.Lens.Record (prop)
 import Data.Maybe (Maybe(..), fromMaybe)
-import Data.String.Regex.Flags (dotAll)
-import Data.Tuple (Tuple(..), uncurry)
+import Data.Tuple (Tuple(..))
+import Data.Tuple.Nested (T3)
 import Effect (Effect)
 import Effect.Console (log, logShow)
 import Node.Encoding (Encoding(..))
@@ -19,16 +41,17 @@ import Node.FS.Sync (readTextFile)
 import Parsing (Parser, runParser)
 import Parsing.Combinators (optional)
 import Parsing.String (string, char)
-import Parsing.String.Basic (intDecimal, skipSpaces, whiteSpace)
+import Parsing.String.Basic (intDecimal, skipSpaces)
 import Type.Prelude (Proxy(..))
 
 type MonkeyId = Int
-type Item = Int
+type Item = BigInt
 type Monkey = {
                 id :: MonkeyId
               , items :: Array Item
-              , testOperation :: Int -> Int
-              , operation :: Int -> Int
+              , testOperation :: BigInt -> MonkeyId
+              , testValue :: BigInt
+              , operation :: Op
               , inspected :: Int
               }
 _items :: forall a r. Lens' { items :: a | r } a
@@ -37,35 +60,21 @@ _inspected :: forall a r. Lens' { inspected :: a | r } a
 _inspected = prop (Proxy :: Proxy "inspected")
 
 data Op = Add Term | Mul Term
-data Term = Value Int | Old
+data Term = Value BigInt | Old
 
-eval :: Op -> Int -> Int
-eval (Add Old) x = add x x
+eval :: Op -> BigInt -> BigInt
+eval (Add Old) x = eval (Add (Value x)) x
 eval (Add (Value y)) x = add y x
 eval (Mul Old) x = mul x x
-eval (Mul (Value y)) x = mul y x
-
-monkey :: Parser String Monkey
-monkey = do
-  id_ <- monkeyId
-  items_ <- items
-  operation_ <- operation
-  testOperation_ <- testOperation
-  pure {id: id_,
-        items: items_,
-        testOperation: testOperation_,
-        operation: operation_,
-        inspected: 0}
-  where
-    monkeyId = string "Monkey " *> intDecimal <* string ":\n"
+eval (Mul (Value y)) x = mul x y
 
 monkeyRound :: MonkeyId -> Array Monkey -> Array Monkey
 monkeyRound idx monkeys = case index monkeys idx of
   Nothing -> monkeys
   Just monkey_ -> foldl addItem (removeItems monkeys) itemsThrown
     where
-      itemsThrown :: Array (Tuple Item MonkeyId)
-      itemsThrown = itemsToThrow monkey_
+      lcm = product $ (map _.testValue monkeys)
+      itemsThrown = itemsToThrow lcm monkey_
       nItemsThrown = length itemsThrown
       removeItems = over (ix idx <<< _inspected) (add nItemsThrown)
                     <<< set (ix idx <<< _items) []
@@ -77,34 +86,49 @@ runRound monkeys = applyAll (map monkeyRound $ 0..(nMonkeys-1)) monkeys
 addItem :: Array Monkey -> Tuple Item MonkeyId -> Array Monkey
 addItem m (Tuple item id) = over (ix id <<< _items) (flip snoc item) m
 
-itemsToThrow :: Monkey -> Array (Tuple Item MonkeyId)
-itemsToThrow m = zip inspected (map m.testOperation inspected)
+itemsToThrow :: BigInt -> Monkey -> Array (Tuple Item MonkeyId)
+itemsToThrow lcm m = zip inspected (map m.testOperation inspected)
   where
-    inspected = map (flip div 3 <<< m.operation) m.items
+    inspected = map ((flip mod lcm) <<< (eval m.operation)) m.items
 
-items :: Parser String (Array Int)
+monkey :: Parser String Monkey
+monkey = do
+  id_ <- monkeyId
+  items_ <- items
+  operation_ <- operation
+  Tuple divisor (Tuple tVal fVal) <- testOperation
+  pure {id: id_,
+        items: items_,
+        testOperation: (\x -> if mod x divisor == (fromInt 0) then tVal else fVal),
+        testValue: divisor,
+        operation: operation_,
+        inspected: 0}
+  where
+    monkeyId = string "Monkey " *> intDecimal <* string ":\n"
+
+items :: Parser String (Array BigInt)
 items = do
   skipSpaces
   _ <- string "Starting items: "
   items_ <- many do
     item <- intDecimal
     _ <- optional $ string ", "
-    pure (item)
+    pure (fromInt item)
   _ <- char '\n'
   pure (items_)
 
-operation :: Parser String (Int -> Int)
+operation :: Parser String Op
 operation = do
   skipSpaces
   _ <- string "Operation: new = old "
   operator <- Mul <$ char '*' <|>
               Add <$ char '+'
   skipSpaces
-  value <- Value <$> intDecimal <|>
+  value <- (Value <<< fromInt) <$> intDecimal <|>
            Old  <$ string "old"
-  pure (eval $ operator value)
+  pure (operator (value))
 
-testOperation :: Parser String (Int -> Int)
+testOperation :: Parser String (T3 BigInt Int Int)
 testOperation = do
   skipSpaces
   divisor <- string "Test: divisible by "
@@ -115,7 +139,8 @@ testOperation = do
   skipSpaces
   falseThrow <- string "If false: throw to monkey "
                 *> intDecimal <* char '\n'
-  pure (\x -> if mod x divisor == 0 then trueThrow else falseThrow)
+  pure (Tuple (fromInt divisor) (Tuple trueThrow falseThrow))
+  -- pure (\x -> if mod x divisor == 0 then trueThrow else falseThrow)
 
 inputParser :: Parser String (Array Monkey)
 inputParser = do
@@ -137,6 +162,13 @@ main = do
       log "Part 1"
       let
         fin = applyAll (replicate 20 runRound) monkeys
-        monkeyBusiness = product $ take 2 $ reverse $ sort $ map _.inspected fin
-      log $ "Monkey business: " <> (show monkeyBusiness)
+        inspected = reverse $ sort $ map _.inspected fin
+        monkeyBusiness = product $ take 2 $ inspected
+      log $ "Monkey business: " <> show monkeyBusiness
+      log "Part 2"
+      let
+        fin2 = applyAll (replicate 10000 runRound) monkeys
+        inspected2 = reverse $ sort $ map _.inspected fin2
+        monkeyBusiness2 = product $ map fromInt $ take 2 inspected2
+      log $ "Monkey business: " <> show monkeyBusiness2
     Left  parseErr -> logShow parseErr

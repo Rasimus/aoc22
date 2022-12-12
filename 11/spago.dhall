@@ -13,6 +13,7 @@ to generate this file without the comments in this block.
 { name = "my-project"
 , dependencies =
   [ "arrays"
+  , "bigints"
   , "console"
   , "control"
   , "effect"
@@ -24,7 +25,6 @@ to generate this file without the comments in this block.
   , "parsing"
   , "prelude"
   , "profunctor-lenses"
-  , "strings"
   , "tuples"
   , "typelevel-prelude"
   ]
