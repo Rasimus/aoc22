@@ -7,10 +7,13 @@ import Data.Array as A
 import Data.Interpolate (i)
 import Effect (Effect)
 import Effect.Class.Console (log)
-import Main (Rock, WindDirection(..), collision, collisionRocks, mergeLayers, mergeRocks, padRock, pushRight, takeOrExtend, zipWithAll)
+import Main (Rock, WindDirection(..), collision, collisionRocks, mergeLayers, mergeRocks, padRock, pretty, pushLeft, pushRight, takeOrExtend, zipWithAll)
 import Test.Unit (suite, test)
 import Test.Unit.Assert as Assert
 import Test.Unit.Main (runTest)
+
+bottomPlate :: Rock
+bottomPlate = [[true,true,true,true,true,true,true]]
 
 horizontal :: Rock
 horizontal =
@@ -173,3 +176,18 @@ main = do
         Assert.assert
           "backwardsL and offset (1) square does notcollide"
           $ collisionRocks paddedBackwardsL paddedSquare 1
+      test "Weird L case" do
+        let rock = pushLeft $ paddedBackwardsL
+            offset = -3
+            chamber = paddedCross <>
+                      paddedHorizontal <>
+                      bottomPlate
+        Assert.assertFalse "weird case collides"
+          $ collisionRocks chamber rock offset
+        log $ pretty chamber
+    suite "Test push rock" do
+      test "Push backwardsL" do
+        let pushedLeft = [[false,false,false,true ,false,false,false],
+                          [false,false,false,true ,false,false,false],
+                          [false,true, true, true, false,false,false]]
+        Assert.equal pushedLeft $ pushLeft paddedBackwardsL

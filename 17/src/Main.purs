@@ -5,6 +5,7 @@ import Prelude
 
 import Control.Alt ((<|>))
 import Control.Monad.Cont (lift)
+import Control.Monad.RWS (RWS, execRWS, tell)
 import Control.Monad.State (State, StateT, execState, get, gets, modify_, put)
 import Control.Monad.Trampoline (done)
 import Data.Array (length)
@@ -26,8 +27,6 @@ import Parsing (Parser, runParser)
 import Parsing.Combinators (many1, sepBy1)
 import Parsing.String (char, string)
 
-
-
 -- True and false represents occupied and empty spaces, respectively
 type Layer = Array Boolean
 type Rock = Array Layer
@@ -36,11 +35,11 @@ data WindDirection = LeftWind | RightWind
 
 type WindOrder = List WindDirection
 type RockOrder = List Rock
-
+type ChamberState = {chamber :: Chamber,
+                     rockStream :: RockOrder,
+                     windStream :: WindOrder}
 -- type SimulationConfig = Reader WindOrder RockOrder
-type SimulationState = State {chamber :: Chamber,
-                              rockStream :: RockOrder,
-                              windStream :: WindOrder}
+type SimulationState = RWS String (Array String) ChamberState
 -- type RockState = StateT {rock :: Rock, offset :: Int} SimulationState
 
 class Pretty a where
@@ -58,6 +57,9 @@ instance prettyLayer :: Pretty Layer where
 
 instance prettyRock :: Pretty Rock where
   pretty rock = joinWith "\n" $ map pretty rock
+
+-- instance prettyChamber :: Pretty Chamber where
+--   pretty chamber = joinWith "\n" $ map pretty chamber
 
 instance prettyRockOrder :: Pretty RockOrder where
   pretty rocks = joinWith "\n\n" $ A.fromFoldable $ map pretty rocks
@@ -190,11 +192,18 @@ dropRock :: Rock -> Int -> SimulationState Unit
 dropRock r o =
   do
     chamber <- gets _.chamber
-    pushedRock <- pushInChamber r o chamber <$> nextWind
+    -- tell ["Rock falls down\n" <> "Current offset " <> show o]
+    -- tell [pretty $ mergeRocks chamber r o]
+    wind <- nextWind
+    -- tell ["Jet of gas pushes rock " <> pretty wind]
+    let pushedRock = pushInChamber r o chamber wind
+    -- tell [pretty $ mergeRocks chamber pushedRock o]
     if collisionRocks chamber pushedRock (o+1)
       then do
         -- pushedRock <- pushInChamber r o chamber <$> nextWind
+        -- tell ["Collision below, merging rock into chamber"]
         modify_ (\state -> state { chamber = mergeRocks chamber pushedRock o })
+        -- tell [pretty $ mergeRocks chamber pushedRock o]
         pure unit
       else do
         dropRock pushedRock (o+1)
@@ -213,7 +222,7 @@ dropRocks n = do
 
 pushInChamber :: Rock -> Int -> Chamber -> WindDirection -> Rock
 pushInChamber r o c d =
-  if collisionRocks pushedRock c o
+  if collisionRocks c pushedRock o
      then r
      else pushedRock
   where pushedRock = push r d
@@ -228,14 +237,15 @@ main = do
       case runParser windInput windOrder of
         Left msg -> logShow msg
         Right windOrder' -> do
-          let numberOfRocks = 3
+          let numberOfRocks = 2022
               initState = {chamber: [[true,true,true,true,true,true,true]],
                            rockStream: rockOrder',
                            windStream: windOrder'}
-              {chamber, windStream} = execState (dropRocks numberOfRocks) initState
-          log $ pretty $ LL.take 5 rockOrder'
-          log "\n"
-          log $ pretty chamber
+              Tuple {chamber, windStream} debugLog = execRWS (dropRocks numberOfRocks) "" initState
+          -- log $ pretty $ LL.take 5 rockOrder'
+          -- log "\n"
+          -- log $ pretty chamber
           logShow $ length chamber
-          log $ pretty $ LL.take 20 windOrder'
-          log $ pretty $ LL.take 20 windStream
+          -- log $ pretty $ LL.take 20 windOrder'
+          -- log $ pretty $ LL.take 20 windStream
+          -- log $ joinWith "\n\n" $ debugLog
